@@ -99,7 +99,7 @@ Below is a minimal example for a Particle device to register itself and relay bu
 
 SYSTEM_MODE(AUTOMATIC);
 
-const char* deviceID = System.deviceID();
+const char* deviceID = Particle.deviceID();
 const char* component = "button";
 
 void registerDevice() {
