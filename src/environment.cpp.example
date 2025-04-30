@@ -1,0 +1,12 @@
+// environment.cpp.example
+// Copy this file to environment.cpp and edit the values for your environment.
+
+#include "Particle.h"
+#include "environment.h"
+
+// MQTT server settings
+const byte MQTT_SERVER[4] = {192, 168, 0, 200}; // Set your MQTT broker IP
+const int MQTT_PORT = 1883; // Set your MQTT broker port
+const char* MQTT_USER = "username"; // Set your MQTT username
+const char* MQTT_PASS = "password"; // Set your MQTT password
+const char* MQTT_CLIENT_ID = "mqttbridge"; // Set your MQTT client ID

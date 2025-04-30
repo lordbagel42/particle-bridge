@@ -1,0 +1,14 @@
+{
+    "extensions.ignoreRecommendations": true,
+    "C_Cpp.default.configurationProvider": "particle.particle-vscode-core",
+    "files.associations": {
+        "*.ino": "cpp",
+        "string": "cpp"
+    },
+    "particle.firmwareVersion": "6.2.1",
+    "particle.targetPlatform": "p2",
+    "C_Cpp.default.compilerPath": "c:\\Users\\ender\\.particle\\toolchains\\gcc-arm\\10.2.1\\bin\\arm-none-eabi-gcc.exe",
+    "C_Cpp.default.intelliSenseMode": "windows-gcc-arm",
+    "particle.targetDevice": "0a10aced202194944a0499ac",
+    "particle.debugWarningShown": true
+}
