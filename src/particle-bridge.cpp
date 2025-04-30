@@ -62,6 +62,7 @@ void publishStatus();
 void subscribeInitialTopics();  
 void addMqttSubscription(const String &topic);  
 void handleCommand(const char *topic, const char *data); // New function to handle commands
+void publishDiscoveryMessage(const String &deviceID, const String &component); // New function to publish discovery messages
 
 // MQTT server settings  
 MQTT client(MQTT_SERVER, MQTT_PORT, mqttCallback);
@@ -220,6 +221,32 @@ void handleCommand(const char *topic, const char *data)
   client.publish(confirmationTopic.c_str(), commandData.c_str());  
 }  
 
+// Helper: Publish Home Assistant Discovery message for a component
+void publishDiscoveryMessage(const String &deviceID, const String &component) {
+  // Determine component type (e.g., binary_sensor, sensor, switch, etc.)
+  // For this example, treat "button" as binary_sensor, others as sensor
+  String haComponent = (component == "button") ? "binary_sensor" : "sensor";
+  String unique_id = "mqttbridge_" + deviceID + "_" + component;
+  String discoveryTopic = "homeassistant/" + haComponent + "/" + unique_id + "/config";
+
+  StaticJsonDocument<512> doc;
+  doc["name"] = component;
+  doc["state_topic"] = "homeassistant/bridge/device/" + deviceID + "/" + component + "/state";
+  doc["unique_id"] = unique_id;
+  doc["availability_topic"] = "homeassistant/bridge/device/" + deviceID + "/availability";
+  // Device object for device-based registration
+  JsonObject deviceObj = doc.createNestedObject("device");
+  deviceObj["identifiers"][0] = deviceID;
+  deviceObj["manufacturer"] = "Particle";
+  deviceObj["model"] = "Photon";
+  deviceObj["name"] = "Particle Device " + deviceID;
+
+  char payload[512];
+  serializeJson(doc, payload);
+  client.publish(discoveryTopic.c_str(), payload, true); // Retain discovery message
+  Log.info("Published HA discovery: %s => %s", discoveryTopic.c_str(), payload);
+}
+
 // ---------------- Particle → MQTT Setup Handler ----------------  
 void mqttHandler(const char *event, const char *data)  
 {  
@@ -234,26 +261,24 @@ void mqttHandler(const char *event, const char *data)
     return;  
   }  
 
-  const char* subTopic = doc["topic"];  
-  if (subTopic)  
-  {  
-    String fullEvent = String(subTopic);  
-    if (!fullEvent.startsWith("mqttbridge/to_particle/"))  
-    {  
-      fullEvent = "mqttbridge/to_particle/" + fullEvent;  
-    }  
-    if (particleSubscribers.indexOf(fullEvent) == -1)  
-    {  
-      Particle.subscribe(fullEvent.c_str(), mqttSubRelay);  
-      particleSubscribers.append(fullEvent);  
-      Log.info("Subscribed to Particle event: %s", fullEvent.c_str());  
-    }  
-  }  
-  else  
-  {  
-    Log.warn("No topic found in setup data");  
-  }  
-}  
+  // Device registration: { "deviceID": "abc", "components": ["button", "sensor"] }
+  const char* deviceID = doc["deviceID"];
+  JsonArray components = doc["components"];
+  if (deviceID && components) {
+    for (JsonVariant comp : components) {
+      String component = comp.as<String>();
+      publishDiscoveryMessage(deviceID, component);
+    }
+    // Publish device availability as online
+    String availTopic = "homeassistant/bridge/device/" + String(deviceID) + "/availability";
+    client.publish(availTopic.c_str(), "online", true);
+    Log.info("Published device availability: %s => online", availTopic.c_str());
+    return;
+  }
+
+  // No legacy topic support
+  Log.warn("Invalid registration payload: missing deviceID or components");
+}
 
 // ---------------- Particle → MQTT Relay ----------------  
 void mqttSubRelay(const char *event, const char *data)  
