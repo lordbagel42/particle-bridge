@@ -62,7 +62,7 @@ void publishStatus();
 void subscribeInitialTopics();  
 void addMqttSubscription(const String &topic);  
 void handleCommand(const char *topic, const char *data); // New function to handle commands
-void publishDiscoveryMessage(const String &deviceID, const String &component); // New function to publish discovery messages
+void publishDiscoveryPayload(const String &deviceID, const String &deviceName, const String &manufacturer, const String &model, const String &sw, const String &serial, const String &hw, const String &orgName, const String &orgSw, const String &orgUrl, const JsonObject &components, const String &stateTopic, int qos); // New function to publish discovery payload
 
 // MQTT server settings  
 MQTT client(MQTT_SERVER, MQTT_PORT, mqttCallback);
@@ -221,28 +221,41 @@ void handleCommand(const char *topic, const char *data)
   client.publish(confirmationTopic.c_str(), commandData.c_str());  
 }  
 
-// Helper: Publish Home Assistant Discovery message for a component
-void publishDiscoveryMessage(const String &deviceID, const String &component) {
-  // Determine component type (e.g., binary_sensor, sensor, switch, etc.)
-  // For this example, treat "button" as binary_sensor, others as sensor
-  String haComponent = (component == "button") ? "binary_sensor" : "sensor";
-  String unique_id = "mqttbridge_" + deviceID + "_" + component;
-  String discoveryTopic = "homeassistant/" + haComponent + "/" + unique_id + "/config";
+// Helper: Publish Home Assistant Discovery message for a device and its components (new structure)
+void publishDiscoveryPayload(const String &deviceID, const String &deviceName, const String &manufacturer, const String &model, const String &sw, const String &serial, const String &hw, const String &orgName, const String &orgSw, const String &orgUrl, const JsonObject &components, const String &stateTopic, int qos) {
+  StaticJsonDocument<1024> doc;
 
-  StaticJsonDocument<512> doc;
-  doc["name"] = component;
-  doc["state_topic"] = "homeassistant/bridge/device/" + deviceID + "/" + component + "/state";
-  doc["unique_id"] = unique_id;
-  doc["availability_topic"] = "homeassistant/bridge/device/" + deviceID + "/availability";
-  // Device object for device-based registration
-  JsonObject deviceObj = doc.createNestedObject("device");
-  deviceObj["identifiers"][0] = deviceID;
-  deviceObj["manufacturer"] = "Particle";
-  deviceObj["model"] = "Photon";
-  deviceObj["name"] = "Particle Device " + deviceID;
+  // Device info
+  JsonObject dev = doc.createNestedObject("dev");
+  dev["ids"] = deviceID;
+  dev["name"] = deviceName;
+  dev["mf"] = manufacturer;
+  dev["mdl"] = model;
+  dev["sw"] = sw;
+  dev["sn"] = serial;
+  dev["hw"] = hw;
 
-  char payload[512];
+  // Organization info
+  JsonObject o = doc.createNestedObject("o");
+  o["name"] = orgName;
+  o["sw"] = orgSw;
+  o["url"] = orgUrl;
+
+  // Components
+  JsonObject cmps = doc.createNestedObject("cmps");
+  for (JsonPair kv : components) {
+    JsonObject cmp = cmps.createNestedObject(kv.key().c_str());
+    for (JsonPair cmpField : kv.value().as<JsonObject>()) {
+      cmp[cmpField.key()] = cmpField.value();
+    }
+  }
+
+  doc["state_topic"] = stateTopic;
+  doc["qos"] = qos;
+
+  char payload[1024];
   serializeJson(doc, payload);
+  String discoveryTopic = "homeassistant/bridge/device/" + deviceID + "/config";
   client.publish(discoveryTopic.c_str(), payload, true); // Retain discovery message
   Log.info("Published HA discovery: %s => %s", discoveryTopic.c_str(), payload);
 }
@@ -253,31 +266,32 @@ void mqttHandler(const char *event, const char *data)
   Log.info("Setup request: %s", data ? data : "(null)");  
   if (!data) return;  
 
-  StaticJsonDocument<200> doc;  
-  DeserializationError error = deserializeJson(doc, data);  
+  // Validate JSON and extract device ID for topic
+  StaticJsonDocument<1024> docIn;
+  DeserializationError error = deserializeJson(docIn, data);
   if (error)  
   {  
     Log.warn("JSON parsing failed: %s", error.c_str());  
     return;  
   }  
 
-  // Device registration: { "deviceID": "abc", "components": ["button", "sensor"] }
-  const char* deviceID = doc["deviceID"];
-  JsonArray components = doc["components"];
-  if (deviceID && components) {
-    for (JsonVariant comp : components) {
-      String component = comp.as<String>();
-      publishDiscoveryMessage(deviceID, component);
-    }
-    // Publish device availability as online
-    String availTopic = "homeassistant/bridge/device/" + String(deviceID) + "/availability";
-    client.publish(availTopic.c_str(), "online", true);
-    Log.info("Published device availability: %s => online", availTopic.c_str());
+  // Require dev.ids for topic
+  if (!docIn.containsKey("dev") || !docIn["dev"].containsKey("ids")) {
+    Log.warn("Setup payload missing dev.ids");
     return;
   }
+  const char* deviceIDChar = docIn["dev"]["ids"].as<const char*>();
+  String deviceID = deviceIDChar ? String(deviceIDChar) : String();
+  String discoveryTopic = "homeassistant/bridge/device/" + deviceID + "/config";
 
-  // No legacy topic support
-  Log.warn("Invalid registration payload: missing deviceID or components");
+  // Publish the payload as-is
+  client.publish(discoveryTopic.c_str(), data, true);
+  Log.info("Published HA discovery (raw): %s => %s", discoveryTopic.c_str(), data);
+
+  // Publish device availability as online
+  String availTopic = "homeassistant/bridge/device/" + deviceID + "/availability";
+  client.publish(availTopic.c_str(), "online", true);
+  Log.info("Published device availability: %s => online", availTopic.c_str());
 }
 
 // ---------------- Particle → MQTT Relay ----------------  
